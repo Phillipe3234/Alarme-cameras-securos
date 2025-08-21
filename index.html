@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sistema de Alarmes</title>
+</head>
+<style>
+        body {
+            background-color: #0d1327;
+            color: white;
+            text-align: center;
+        }
+        table { 
+        width: 100%; 
+        border-collapse: collapse; 
+        margin-top: 40px;
+        }
+
+        th, td { 
+        padding: 8px; 
+        text-align: center;
+        border-bottom: 1px solid #ddd; 
+        }
+
+        tr:hover { 
+        background-color: #364765; 
+        cursor: pointer; 
+        }
+        h1{
+            font-size: 45px;
+        }
+        
+        button{
+            position: relative;
+          
+            background-color: #364765;
+            color: white;
+            border-radius: 10%;
+            box-shadow: 2px 2px 10px white;
+        }
+    </style>
+<body>
+    <!-- Elemento hidden para armazenar o MediaClientId -->
+    <input type="hidden" id="MediaClientId" value="">
+    
+    <h1>Alarmes das câmeras</h1>
+    <button onclick="abrirCamerasModo4x4()" class="btn-camera-4x4">
+        VideoWall das câmeras alarmadas
+    </button>
+    <table id="alarms-table">
+        <thead>
+            <tr>
+                <th>ID da Câmera</th>
+                <th>Nome da Câmera</th>
+                <th>Horário</th>
+            </tr>
+        </thead>
+        <tbody id="alarms-body">
+            <!-- Alarmes serão adicionados aqui -->
+        </tbody>
+    </table>
+
+    <script>
+        // Função para abrir câmeras no modo 4x4
+        function abrirCamerasModo4x4() {
+        
+            // Verifica se o MediaClientId está configurado
+            const mediaClientId = document.getElementById('MediaClientId').value;
+            console.log("MediaClientId:", mediaClientId);
+        
+            if (!mediaClientId) {
+                console.error("MediaClientId não configurado!");
+                alert("Media Client não está configurado. Aguarde a inicialização ou verifique a conexão.");
+                return false;
+            }
+
+            // Obtém todos os IDs de câmera da tabela de alarmes
+            const cameraIds = [];
+            const rows = document.querySelectorAll('#alarms-body tr');
+            
+            rows.forEach(row => {
+                const cameraId = row.cells[0].textContent;
+                if (cameraId && !cameraIds.includes(cameraId)) {
+                    cameraIds.push(cameraId);
+                }
+            });
+        
+            
+        
+            // Limita a 16 câmeras para o layout 4x4
+            const selectedCameras = cameraIds;
+            console.log("Câmeras selecionadas para 4x4:", selectedCameras);
+            
+            // Método 1 - Usando a API ISScustomAPI
+            try {
+                if (typeof ISScustomAPI !== 'undefined') {
+                    console.log("Enviando comando 4x4 via ISScustomAPI...");
+                    
+                    // Formato do parâmetro para layout 4x4
+                    const params = JSON.stringify({
+                        seq: selectedCameras.join('|'),
+                        mode: "4x4",
+                        layout: "grid"
+                    });
+                
+                    console.log("Parâmetros 4x4:", params);
+                    
+                    ISScustomAPI.sendReact("MEDIA_CLIENT", mediaClientId, "ADD_SEQUENCE", params);
+                    console.log("Comando 4x4 enviado via ISScustomAPI com sucesso!");
+                    return true;
+                }
+            } catch (e) {
+                console.error("Erro ISScustomAPI no modo 4x4:", e);
+            }
+        
+            // Método 2 - Usando API externa (fallback)
+            try {
+                if (window.external && window.external.ISSCustomAPi) {
+                    console.log("Tentando modo 4x4 via external.ISSCustomAPi...");
+                
+                    // Formato pode variar dependendo da API
+                    window.external.ISSCustomAPi.abrirCamera(selectedCameras.join(','), "4x4");
+                    console.log("Comando 4x4 enviado via external.ISSCustomAPi");
+                    return true;
+                }
+            } catch (e) {
+                console.error("Erro external.ISSCustomAPi no modo 4x4:", e);
+            }
+            
+            console.error("Nenhuma API disponível para enviar o comando 4x4");
+            alert("Não foi possível ativar o modo 4x4. Verifique se o Media Client está instalado e funcionando.");
+            return false;
+        }
+
+        window.onload = function() {
+            console.log("Página carregada - Iniciando configuração...");
+            
+            // Configuração do Media Client 
+            if (typeof ISScustomAPI !== 'undefined') {
+                console.log("ISScustomAPI disponível");
+                
+                ISScustomAPI.onSetup(function (settings) {
+                    console.log("Configurações recebidas:", settings);
+                    try {
+                        let jsonSettings = JSON.parse(settings);
+                        document.getElementById('MediaClientId').value = jsonSettings.media_client_id;
+                        console.log("MediaClientId configurado:", jsonSettings.media_client_id);
+                    } catch (e) {
+                        console.error("Erro ao parsear settings:", e);
+                    }
+                });
+                
+                // Se estiver usando ISScustomAPI para receber eventos
+                ISScustomAPI.subscribe("ALARM_UI", "*", "NEW_EVENT");
+                ISScustomAPI.onEvent(function(type, id, action, params) {
+                    if (action === "NEW_EVENT") {
+                        console.log("Novo evento recebido:", params);
+                        addAlarmToList(params.id, params.name, params.time);
+                    }
+                });
+            } else {
+                console.error("ISScustomAPI não está disponível");
+            }
+
+            function addAlarmToList(cameraId, cameraName, time) {
+                console.log("Adicionando alarme à lista:", cameraId, cameraName);
+                
+                const tableBody = document.getElementById('alarms-body');
+                const newRow = document.createElement('tr');
+
+                newRow.innerHTML = `
+                    <td>${cameraId}</td>
+                    <td>${cameraName}</td>
+                    <td>${time}</td>
+                `;
+                
+                //Chama a função de abrirCamera com DOUBLE CLICK 
+                newRow.addEventListener('dblclick', function(){
+                    console.log("Double click detectado na câmera:", cameraId);
+                    abrirCameraNoMediaClient(cameraId);
+                });
+                
+
+                tableBody.insertBefore(newRow, tableBody.firstChild);
+
+                if (tableBody.children.length > 50) {
+                    tableBody.removeChild(tableBody.lastChild);
+                }
+            }
+        };
+
+        // Função para abrir câmera no Media Client 
+        function abrirCameraNoMediaClient(camId) {
+            console.log("=== TENTATIVA DE ABRIR CÂMERA ===");
+            console.log("Camera ID:", camId);
+            
+            // Verifica se o MediaClientId está configurado
+            const mediaClientId = document.getElementById('MediaClientId').value;
+            console.log("MediaClientId:", mediaClientId);
+            
+            if (!mediaClientId) {
+                console.error("MediaClientId não configurado!");
+                alert("Media Client não está configurado. Aguarde a inicialização ou verifique a conexão.");
+                return false;
+            }
+
+            // Método 1 - Usando a API ISScustomAPI
+            try {
+                if (typeof ISScustomAPI !== 'undefined') {
+                    console.log("Enviando comando via ISScustomAPI...");
+                    const params = JSON.stringify({seq: camId, mode: "1x1"});
+                    console.log("Parâmetros:", params);
+                    
+                    ISScustomAPI.sendReact("MEDIA_CLIENT", mediaClientId, "ADD_SEQUENCE", params);
+                    console.log("Comando enviado via ISScustomAPI com sucesso!");
+                    return true;
+                }
+            } catch (e) {
+                console.error("Erro ISScustomAPI:", e);
+            }
+            
+            // Método 2 - Usando API externa (fallback)
+            try {
+                if (window.external && window.external.ISSCustomAPi) {
+                    console.log("Tentando via external.ISSCustomAPi...");
+                    window.external.ISSCustomAPi.abrirCamera(camId, "1x1");
+                    console.log("Comando enviado via external.ISSCustomAPi");
+                    return true;
+                }
+            } catch (e) {
+                console.error("Erro external.ISSCustomAPi:", e);
+            }
+            
+            console.error("Nenhuma API disponível para enviar o comando");
+            alert("Não foi possível abrir a câmera. Verifique se o Media Client está instalado e funcionando.");
+            return false;
+        }
+
+        // Funções auxiliares (mantidas do código original)
+        function MakeLiveAddSequenceParams() {
+            var cameras = document.getElementById("Cameras").value;
+            var params = {
+                seq: cameras.split(',').join('|')
+            };
+            return JSON.stringify(params);
+        }
+
+        function CamId() {
+            var cameras = document.getElementById("Cameras").value;
+            cameras = cameras.split(',').join('|');
+            return cameras.split('|')[0];
+        }
+
+        function SendMessage() {
+            var issMsgType = document.getElementById("IssMessageType").value;
+            var action = document.getElementById("Action").value;
+            var type = document.getElementById("Type").value;
+            var id = document.getElementById("ID").value;
+            var params = document.getElementById("Params").value;
+            
+            if (issMsgType === 1)
+                ISScustomAPI.sendEvent(type, id, action, params);
+            else
+                ISScustomAPI.sendReact(type, id, action, params);
+        }
+
+        function MakeFindLevelParams() {
+            var params = {
+                name: document.getElementById("LevelName").value
+            };
+            return JSON.stringify(params);
+        }
+
+        function MakeFindObjectParams() {
+            var params = {
+                type: document.getElementById("ObjectType").value,
+                id: document.getElementById("ObjectId").value
+            };
+            return JSON.stringify(params);
+        }
+        
+    </script>
+</body>
+</html>
